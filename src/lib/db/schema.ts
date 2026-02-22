@@ -55,15 +55,18 @@ export const sessions = mysqlTable(
   {
     id: varchar({ length: 255 }).primaryKey(),
     expiresAt: datetime().notNull(),
+    token: varchar({ length: 255 }),
     ipAddress: varchar({ length: 45 }),
     userAgent: text(),
     userId: varchar({ length: 255 })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     createdAt: datetime({ mode: "date" }).$defaultFn(() => new Date()).notNull(),
+    updatedAt: datetime({ mode: "date" }).$defaultFn(() => new Date()).notNull(),
   },
   (table) => ({
     userIdIdx: index("session_user_idx").on(table.userId),
+    tokenIdx: index("session_token_idx").on(table.token),
   })
 );
 
