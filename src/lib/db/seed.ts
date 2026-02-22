@@ -1,319 +1,202 @@
 /**
  * Database Seed Script
- * Creates initial users with proper password hashing via better-auth API
+ * Creates admin, users, roles, and permissions
+ * 
+ * Run: npx tsx src/lib/db/seed.ts
  */
 
-import { config } from "dotenv";
-config({ path: ".env.local" });
-
-import { drizzle } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
-import { randomBytes, scryptSync } from "crypto";
-import * as schema from "./schema";
-import { eq } from "drizzle-orm";
+import { randomUUID } from "crypto";
+import { hash } from "bcryptjs";
 
-// Create fresh connection for seed
-const pool = mysql.createPool({
-  uri: process.env.DATABASE_URL,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-});
-
-const db = drizzle(pool, { schema, mode: "default" });
-
-// Generate unique ID
-function generateId(): string {
-  return randomBytes(16).toString("hex");
-}
-
-// Convert buffer to hex string
-function toHex(buffer: Buffer): string {
-  return buffer.toString("hex");
-}
-
-// Password hashing compatible with better-auth
-// Note: Node's scrypt has memory limits, so we use a workaround
-function hashPassword(password: string): string {
-  const salt = randomBytes(16);
-  const normalizedPassword = password.normalize("NFKC");
-
-  // Use lower params for Node's scrypt (due to memory limits)
-  // better-auth uses @noble/hashes which supports higher N
-  const key = scryptSync(normalizedPassword, salt, 64, {
-    cost: 2048,   // Lower N due to Node.js memory limits
-    blockSize: 8,
-    parallelization: 1,
-    maxmem: 128 * 2048 * 8 * 2,
-  }) as Buffer;
-
-  return `${toHex(salt)}:${toHex(key)}`;
-}
+const DATABASE_URL = "mysql://alca:alca@localhost:3306/nextjs_starterkit";
 
 async function seed() {
+  const connection = await mysql.createConnection({ uri: DATABASE_URL });
+
   console.log("🌱 Starting database seed...\n");
 
   try {
     // ============================================
-    // 0. CLEAN EXISTING SEED DATA
+    // 1. CLEAN EXISTING DATA
     // ============================================
-    console.log("🧹 Cleaning existing seed data...");
-
-    const testEmails = [
-      "admin@example.com",
-      "moderator@example.com",
-      "user@example.com",
-      "test@example.com"
-    ];
-
-    // Get user IDs for test emails
-    for (const email of testEmails) {
-      const users = await db.select()
-        .from(schema.users)
-        .where(eq(schema.users.email, email));
-
-      for (const user of users) {
-        await db.delete(schema.userRoles).where(eq(schema.userRoles.userId, user.id));
-        await db.delete(schema.auditLogs).where(eq(schema.auditLogs.userId, user.id));
-        await db.delete(schema.sessions).where(eq(schema.sessions.userId, user.id));
-        await db.delete(schema.accounts).where(eq(schema.accounts.userId, user.id));
-        await db.delete(schema.files).where(eq(schema.files.uploadedBy, user.id));
-      }
-    }
-
-    // Delete test users
-    for (const email of testEmails) {
-      await db.delete(schema.users).where(eq(schema.users.email, email));
-    }
-
-    // Delete existing roles and permissions
-    await db.delete(schema.rolePermissions);
-    await db.delete(schema.userRoles);
-    await db.delete(schema.permissions);
-    await db.delete(schema.roles);
-
-    console.log("  ✓ Cleaned existing data\n");
+    console.log("📦 Cleaning existing data...");
+    await connection.execute("DELETE FROM user_roles");
+    await connection.execute("DELETE FROM role_permissions");
+    await connection.execute("DELETE FROM audit_logs");
+    await connection.execute("DELETE FROM files");
+    await connection.execute("DELETE FROM accounts");
+    await connection.execute("DELETE FROM sessions");
+    await connection.execute("DELETE FROM verifications");
+    await connection.execute("DELETE FROM users");
+    await connection.execute("DELETE FROM role_permissions");
+    await connection.execute("DELETE FROM user_roles");
+    await connection.execute("DELETE FROM permissions");
+    await connection.execute("DELETE FROM roles");
+    console.log("✅ Data cleaned\n");
 
     // ============================================
-    // 1. CREATE ROLES
+    // 2. CREATE ROLES
     // ============================================
-    console.log("📋 Creating roles...");
+    console.log("👤 Creating roles...");
+    
+    const adminRoleId = randomUUID();
+    const userRoleId = randomUUID();
 
-    const roles = [
-      { id: generateId(), name: "admin", description: "Full system access" },
-      { id: generateId(), name: "moderator", description: "Content moderation access" },
-      { id: generateId(), name: "user", description: "Standard user access" },
-    ];
+    await connection.execute(
+      `INSERT INTO roles (id, name, description, createdAt, updatedAt) VALUES 
+       (?, 'admin', 'Full system administrator', NOW(), NOW()),
+       (?, 'user', 'Regular user with basic access', NOW(), NOW())`,
+      [adminRoleId, userRoleId]
+    );
 
-    for (const role of roles) {
-      await db.insert(schema.roles).values(role);
-      console.log(`  ✓ Role: ${role.name}`);
-    }
-
-    const adminRole = roles.find((r) => r.name === "admin")!;
-    const moderatorRole = roles.find((r) => r.name === "moderator")!;
-    const userRole = roles.find((r) => r.name === "user")!;
+    console.log("✅ Roles created: admin, user\n");
 
     // ============================================
-    // 2. CREATE PERMISSIONS
+    // 3. CREATE PERMISSIONS
     // ============================================
-    console.log("\n🔐 Creating permissions...");
+    console.log("🔐 Creating permissions...");
 
     const permissions = [
       // User management
-      { id: generateId(), name: "users.create", resource: "users", action: "create" as const, description: "Create new users" },
-      { id: generateId(), name: "users.read", resource: "users", action: "read" as const, description: "View users" },
-      { id: generateId(), name: "users.update", resource: "users", action: "update" as const, description: "Update users" },
-      { id: generateId(), name: "users.delete", resource: "users", action: "delete" as const, description: "Delete users" },
-      { id: generateId(), name: "users.manage", resource: "users", action: "manage" as const, description: "Full user management" },
-
-      // Content management
-      { id: generateId(), name: "content.create", resource: "content", action: "create" as const, description: "Create content" },
-      { id: generateId(), name: "content.read", resource: "content", action: "read" as const, description: "View content" },
-      { id: generateId(), name: "content.update", resource: "content", action: "update" as const, description: "Update content" },
-      { id: generateId(), name: "content.delete", resource: "content", action: "delete" as const, description: "Delete content" },
-      { id: generateId(), name: "content.moderate", resource: "content", action: "manage" as const, description: "Moderate content" },
-
-      // Settings management
-      { id: generateId(), name: "settings.read", resource: "settings", action: "read" as const, description: "View settings" },
-      { id: generateId(), name: "settings.update", resource: "settings", action: "update" as const, description: "Update settings" },
-
+      { id: randomUUID(), name: "users.create", resource: "users", action: "create", desc: "Create new users" },
+      { id: randomUUID(), name: "users.read", resource: "users", action: "read", desc: "View users" },
+      { id: randomUUID(), name: "users.update", resource: "users", action: "update", desc: "Edit users" },
+      { id: randomUUID(), name: "users.delete", resource: "users", action: "delete", desc: "Delete users" },
+      
       // File management
-      { id: generateId(), name: "files.upload", resource: "files", action: "create" as const, description: "Upload files" },
-      { id: generateId(), name: "files.delete", resource: "files", action: "delete" as const, description: "Delete files" },
-
+      { id: randomUUID(), name: "files.create", resource: "files", action: "create", desc: "Upload files" },
+      { id: randomUUID(), name: "files.read", resource: "files", action: "read", desc: "View files" },
+      { id: randomUUID(), name: "files.delete", resource: "files", action: "delete", desc: "Delete files" },
+      
+      // Settings
+      { id: randomUUID(), name: "settings.read", resource: "settings", action: "read", desc: "View settings" },
+      { id: randomUUID(), name: "settings.update", resource: "settings", action: "update", desc: "Edit settings" },
+      
+      // Dashboard
+      { id: randomUUID(), name: "dashboard.read", resource: "dashboard", action: "read", desc: "Access dashboard" },
+      
       // Audit logs
-      { id: generateId(), name: "audit.read", resource: "audit", action: "read" as const, description: "View audit logs" },
+      { id: randomUUID(), name: "audit.read", resource: "audit", action: "read", desc: "View audit logs" },
     ];
 
-    for (const permission of permissions) {
-      await db.insert(schema.permissions).values(permission);
+    for (const perm of permissions) {
+      await connection.execute(
+        `INSERT INTO permissions (id, name, description, resource, action, createdAt) 
+         VALUES (?, ?, ?, ?, ?, NOW())`,
+        [perm.id, perm.name, perm.desc, perm.resource, perm.action]
+      );
     }
-    console.log(`  ✓ Created ${permissions.length} permissions`);
+
+    console.log(`✅ ${permissions.length} permissions created\n`);
 
     // ============================================
-    // 3. ASSIGN PERMISSIONS TO ROLES
+    // 4. ASSIGN PERMISSIONS TO ROLES
     // ============================================
-    console.log("\n🔗 Assigning permissions to roles...");
+    console.log("🔗 Assigning permissions to roles...");
 
-    // Admin gets all permissions
-    for (const permission of permissions) {
-      await db.insert(schema.rolePermissions)
-        .values({ roleId: adminRole.id, permissionId: permission.id, createdAt: new Date() });
+    // Admin gets ALL permissions
+    for (const perm of permissions) {
+      await connection.execute(
+        `INSERT INTO role_permissions (roleId, permissionId, createdAt) VALUES (?, ?, NOW())`,
+        [adminRoleId, perm.id]
+      );
     }
-    console.log(`  ✓ Admin role: All permissions (${permissions.length})`);
 
-    // Moderator permissions
-    const moderatorPerms = permissions.filter(
-      (p) => p.name.includes("content") || p.name.includes("users.read") || p.name.includes("audit.read")
-    );
-    for (const permission of moderatorPerms) {
-      await db.insert(schema.rolePermissions)
-        .values({ roleId: moderatorRole.id, permissionId: permission.id, createdAt: new Date() });
+    // User gets basic permissions only
+    const userPermissionNames = ["users.read", "files.create", "files.read", "settings.read", "dashboard.read"];
+    for (const perm of permissions) {
+      if (userPermissionNames.includes(perm.name)) {
+        await connection.execute(
+          `INSERT INTO role_permissions (roleId, permissionId, createdAt) VALUES (?, ?, NOW())`,
+          [userRoleId, perm.id]
+        );
+      }
     }
-    console.log(`  ✓ Moderator role: ${moderatorPerms.length} permissions`);
 
-    // Standard user permissions
-    const userPerms = permissions.filter(
-      (p) => p.name === "content.read" || p.name === "files.upload"
-    );
-    for (const permission of userPerms) {
-      await db.insert(schema.rolePermissions)
-        .values({ roleId: userRole.id, permissionId: permission.id, createdAt: new Date() });
-    }
-    console.log(`  ✓ User role: ${userPerms.length} permissions`);
+    console.log("✅ Permissions assigned\n");
 
     // ============================================
-    // 4. CREATE USERS WITH PROPER PASSWORD HASH
+    // 5. CREATE USERS
     // ============================================
-    console.log("\n👤 Creating users...");
+    console.log("👥 Creating users...");
 
-    const usersData = [
+    const users = [
       {
-        id: generateId(),
-        name: "Super Admin",
-        email: "admin@example.com",
-        password: "admin123",
-        emailVerified: true,
-        role: adminRole,
+        id: randomUUID(),
+        name: "Admin User",
+        email: "admin@admin.com",
+        password: await hash("Admin123", 10),
+        role: adminRoleId,
       },
       {
-        id: generateId(),
-        name: "John Moderator",
-        email: "moderator@example.com",
-        password: "moderator123",
-        emailVerified: true,
-        role: moderatorRole,
+        id: randomUUID(),
+        name: "Demo User",
+        email: "demo@demo.com",
+        password: await hash("Demo1234", 10),
+        role: userRoleId,
       },
       {
-        id: generateId(),
-        name: "Jane User",
-        email: "user@example.com",
-        password: "user123",
-        emailVerified: true,
-        role: userRole,
-      },
-      {
-        id: generateId(),
+        id: randomUUID(),
         name: "Test User",
-        email: "test@example.com",
-        password: "test123",
-        emailVerified: false,
-        role: userRole,
+        email: "test@test.com",
+        password: await hash("Test1234", 10),
+        role: userRoleId,
       },
     ];
 
-    for (const userData of usersData) {
-      // Hash password using better-auth compatible method
-      const hashedPassword = hashPassword(userData.password);
+    for (const user of users) {
+      await connection.execute(
+        `INSERT INTO users (id, name, email, emailVerified, password, createdAt, updatedAt) 
+         VALUES (?, ?, ?, true, ?, NOW(), NOW())`,
+        [user.id, user.name, user.email, user.password]
+      );
 
-      // Create user
-      await db.insert(schema.users).values({
-        id: userData.id,
-        name: userData.name,
-        email: userData.email,
-        emailVerified: userData.emailVerified,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      // Assign role
+      await connection.execute(
+        `INSERT INTO user_roles (userId, roleId, assignedAt) VALUES (?, ?, NOW())`,
+        [user.id, user.role]
+      );
 
-      // Create credential account with password
-      const accountId = generateId();
-      await db.insert(schema.accounts).values({
-        id: accountId,
-        accountId: accountId,
-        providerId: "credential",
-        userId: userData.id,
-        password: hashedPassword,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-
-      // Assign role to user
-      await db.insert(schema.userRoles)
-        .values({
-          userId: userData.id,
-          roleId: userData.role.id,
-          assignedAt: new Date(),
-        });
-
-      console.log(`  ✓ User: ${userData.name} (${userData.email})`);
+      // Create account record for Better Auth
+      await connection.execute(
+        `INSERT INTO accounts (id, accountId, providerId, userId, password, createdAt, updatedAt) 
+         VALUES (?, ?, 'credential', ?, ?, NOW(), NOW())`,
+        [randomUUID(), user.email, user.id, user.password]
+      );
     }
 
-    // ============================================
-    // 5. CREATE SAMPLE AUDIT LOGS
-    // ============================================
-    console.log("\n📝 Creating sample audit logs...");
-
-    const admin = usersData.find((u) => u.email === "admin@example.com")!;
-    const testUser = usersData.find((u) => u.email === "test@example.com")!;
-
-    await db.insert(schema.auditLogs).values([
-      {
-        userId: admin.id,
-        action: "login",
-        resource: "auth",
-        resourceId: admin.id,
-        ipAddress: "127.0.0.1",
-        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        status: "success",
-        createdAt: new Date(Date.now() - 1000 * 60 * 60), // 1 hour ago
-      },
-      {
-        userId: admin.id,
-        action: "create",
-        resource: "users",
-        resourceId: testUser.id,
-        ipAddress: "127.0.0.1",
-        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        details: JSON.stringify({ message: "Created new user account" }),
-        status: "success",
-        createdAt: new Date(Date.now() - 1000 * 60 * 30), // 30 min ago
-      },
-    ]);
-
-    console.log(`  ✓ Created 2 audit logs`);
+    console.log("✅ Users created\n");
 
     // ============================================
-    // DONE
+    // 6. SUMMARY
     // ============================================
-    console.log("\n✅ Seed completed successfully!\n");
-    console.log("┌─────────────────────────────────────────────────────────┐");
-    console.log("│  📧 TEST ACCOUNTS                                       │");
-    console.log("├─────────────────────────────────────────────────────────┤");
-    console.log("│  Admin:        admin@example.com  /  admin123          │");
-    console.log("│  Moderator:    moderator@example.com  /  moderator123  │");
-    console.log("│  User:         user@example.com  /  user123            │");
-    console.log("│  Test:         test@example.com  /  test123            │");
-    console.log("└─────────────────────────────────────────────────────────┘\n");
+    console.log("=" .repeat(50));
+    console.log("🌱 SEED COMPLETED!\n");
+    
+    console.log("👤 USERS:");
+    console.log("┌─────────────────────────────────────────────┐");
+    console.log("│ Email              │ Password   │ Role      │");
+    console.log("├─────────────────────────────────────────────┤");
+    console.log("│ admin@admin.com    │ Admin123   │ admin     │");
+    console.log("│ demo@demo.com      │ Demo1234   │ user      │");
+    console.log("│ test@test.com      │ Test1234   │ user      │");
+    console.log("└─────────────────────────────────────────────┘\n");
 
-  } catch (error) {
-    console.error("❌ Seed failed:", error);
-    throw error;
-  } finally {
-    await pool.end();
+    console.log("🔐 ROLES: admin, user");
+    console.log(`📜 PERMISSIONS: ${permissions.length} total`);
+    console.log("   - Admin: ALL permissions");
+    console.log("   - User: basic permissions only\n");
+
+    await connection.end();
+    process.exit(0);
+
+  } catch (error: any) {
+    console.error("❌ Seed error:", error.message);
+    console.error(error);
+    await connection.end();
+    process.exit(1);
   }
 }
 
-// Run seed
-seed().catch(console.error);
+seed();
