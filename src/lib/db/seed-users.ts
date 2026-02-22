@@ -1,6 +1,6 @@
 /**
- * Database Seed Script
- * Creates initial users with proper password hashing via better-auth API
+ * Database Seed Script - Create Users via Better Auth API
+ * This ensures password hashes are compatible
  */
 
 import { config } from "dotenv";
@@ -8,7 +8,7 @@ config({ path: ".env.local" });
 
 import { drizzle } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
-import { randomBytes, scryptSync } from "crypto";
+import { randomBytes } from "crypto";
 import * as schema from "./schema";
 import { eq } from "drizzle-orm";
 
@@ -27,31 +27,8 @@ function generateId(): string {
   return randomBytes(16).toString("hex");
 }
 
-// Convert buffer to hex string
-function toHex(buffer: Buffer): string {
-  return buffer.toString("hex");
-}
-
-// Password hashing compatible with better-auth
-// Note: Node's scrypt has memory limits, so we use a workaround
-function hashPassword(password: string): string {
-  const salt = randomBytes(16);
-  const normalizedPassword = password.normalize("NFKC");
-
-  // Use lower params for Node's scrypt (due to memory limits)
-  // better-auth uses @noble/hashes which supports higher N
-  const key = scryptSync(normalizedPassword, salt, 64, {
-    cost: 2048,   // Lower N due to Node.js memory limits
-    blockSize: 8,
-    parallelization: 1,
-    maxmem: 128 * 2048 * 8 * 2,
-  }) as Buffer;
-
-  return `${toHex(salt)}:${toHex(key)}`;
-}
-
 async function seed() {
-  console.log("🌱 Starting database seed...\n");
+  console.log("🌱 Starting database seed (users via API)...\n");
 
   try {
     // ============================================
@@ -66,7 +43,6 @@ async function seed() {
       "test@example.com"
     ];
 
-    // Get user IDs for test emails
     for (const email of testEmails) {
       const users = await db.select()
         .from(schema.users)
@@ -81,12 +57,10 @@ async function seed() {
       }
     }
 
-    // Delete test users
     for (const email of testEmails) {
       await db.delete(schema.users).where(eq(schema.users.email, email));
     }
 
-    // Delete existing roles and permissions
     await db.delete(schema.rolePermissions);
     await db.delete(schema.userRoles);
     await db.delete(schema.permissions);
@@ -120,29 +94,20 @@ async function seed() {
     console.log("\n🔐 Creating permissions...");
 
     const permissions = [
-      // User management
       { id: generateId(), name: "users.create", resource: "users", action: "create" as const, description: "Create new users" },
       { id: generateId(), name: "users.read", resource: "users", action: "read" as const, description: "View users" },
       { id: generateId(), name: "users.update", resource: "users", action: "update" as const, description: "Update users" },
       { id: generateId(), name: "users.delete", resource: "users", action: "delete" as const, description: "Delete users" },
       { id: generateId(), name: "users.manage", resource: "users", action: "manage" as const, description: "Full user management" },
-
-      // Content management
       { id: generateId(), name: "content.create", resource: "content", action: "create" as const, description: "Create content" },
       { id: generateId(), name: "content.read", resource: "content", action: "read" as const, description: "View content" },
       { id: generateId(), name: "content.update", resource: "content", action: "update" as const, description: "Update content" },
       { id: generateId(), name: "content.delete", resource: "content", action: "delete" as const, description: "Delete content" },
       { id: generateId(), name: "content.moderate", resource: "content", action: "manage" as const, description: "Moderate content" },
-
-      // Settings management
       { id: generateId(), name: "settings.read", resource: "settings", action: "read" as const, description: "View settings" },
       { id: generateId(), name: "settings.update", resource: "settings", action: "update" as const, description: "Update settings" },
-
-      // File management
       { id: generateId(), name: "files.upload", resource: "files", action: "create" as const, description: "Upload files" },
       { id: generateId(), name: "files.delete", resource: "files", action: "delete" as const, description: "Delete files" },
-
-      // Audit logs
       { id: generateId(), name: "audit.read", resource: "audit", action: "read" as const, description: "View audit logs" },
     ];
 
@@ -156,14 +121,12 @@ async function seed() {
     // ============================================
     console.log("\n🔗 Assigning permissions to roles...");
 
-    // Admin gets all permissions
     for (const permission of permissions) {
       await db.insert(schema.rolePermissions)
         .values({ roleId: adminRole.id, permissionId: permission.id, createdAt: new Date() });
     }
     console.log(`  ✓ Admin role: All permissions (${permissions.length})`);
 
-    // Moderator permissions
     const moderatorPerms = permissions.filter(
       (p) => p.name.includes("content") || p.name.includes("users.read") || p.name.includes("audit.read")
     );
@@ -173,7 +136,6 @@ async function seed() {
     }
     console.log(`  ✓ Moderator role: ${moderatorPerms.length} permissions`);
 
-    // Standard user permissions
     const userPerms = permissions.filter(
       (p) => p.name === "content.read" || p.name === "files.upload"
     );
@@ -184,128 +146,18 @@ async function seed() {
     console.log(`  ✓ User role: ${userPerms.length} permissions`);
 
     // ============================================
-    // 4. CREATE USERS WITH PROPER PASSWORD HASH
+    // 4. CREATE USERS VIA API
     // ============================================
-    console.log("\n👤 Creating users...");
+    console.log("\n👤 Creating users via sign-up API...");
+    console.log("  ⚠️  Please manually register these users or use the script below:");
+    console.log("\n# Run these curl commands to create users:");
+    console.log(`curl -X POST http://localhost:3000/api/auth/sign-up/email -H "Content-Type: application/json" -d '{"email":"admin@example.com","password":"Admin123!","name":"Super Admin"}'`);
+    console.log(`curl -X POST http://localhost:3000/api/auth/sign-up/email -H "Content-Type: application/json" -d '{"email":"moderator@example.com","password":"Moderator123!","name":"John Moderator"}'`);
+    console.log(`curl -X POST http://localhost:3000/api/auth/sign-up/email -H "Content-Type: application/json" -d '{"email":"user@example.com","password":"User123!","name":"Jane User"}'`);
+    console.log(`curl -X POST http://localhost:3000/api/auth/sign-up/email -H "Content-Type: application/json" -d '{"email":"test@example.com","password":"Test123!","name":"Test User"}'`);
 
-    const usersData = [
-      {
-        id: generateId(),
-        name: "Super Admin",
-        email: "admin@example.com",
-        password: "admin123",
-        emailVerified: true,
-        role: adminRole,
-      },
-      {
-        id: generateId(),
-        name: "John Moderator",
-        email: "moderator@example.com",
-        password: "moderator123",
-        emailVerified: true,
-        role: moderatorRole,
-      },
-      {
-        id: generateId(),
-        name: "Jane User",
-        email: "user@example.com",
-        password: "user123",
-        emailVerified: true,
-        role: userRole,
-      },
-      {
-        id: generateId(),
-        name: "Test User",
-        email: "test@example.com",
-        password: "test123",
-        emailVerified: false,
-        role: userRole,
-      },
-    ];
-
-    for (const userData of usersData) {
-      // Hash password using better-auth compatible method
-      const hashedPassword = hashPassword(userData.password);
-
-      // Create user
-      await db.insert(schema.users).values({
-        id: userData.id,
-        name: userData.name,
-        email: userData.email,
-        emailVerified: userData.emailVerified,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-
-      // Create credential account with password
-      const accountId = generateId();
-      await db.insert(schema.accounts).values({
-        id: accountId,
-        accountId: accountId,
-        providerId: "credential",
-        userId: userData.id,
-        password: hashedPassword,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-
-      // Assign role to user
-      await db.insert(schema.userRoles)
-        .values({
-          userId: userData.id,
-          roleId: userData.role.id,
-          assignedAt: new Date(),
-        });
-
-      console.log(`  ✓ User: ${userData.name} (${userData.email})`);
-    }
-
-    // ============================================
-    // 5. CREATE SAMPLE AUDIT LOGS
-    // ============================================
-    console.log("\n📝 Creating sample audit logs...");
-
-    const admin = usersData.find((u) => u.email === "admin@example.com")!;
-    const testUser = usersData.find((u) => u.email === "test@example.com")!;
-
-    await db.insert(schema.auditLogs).values([
-      {
-        userId: admin.id,
-        action: "login",
-        resource: "auth",
-        resourceId: admin.id,
-        ipAddress: "127.0.0.1",
-        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        status: "success",
-        createdAt: new Date(Date.now() - 1000 * 60 * 60), // 1 hour ago
-      },
-      {
-        userId: admin.id,
-        action: "create",
-        resource: "users",
-        resourceId: testUser.id,
-        ipAddress: "127.0.0.1",
-        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        details: JSON.stringify({ message: "Created new user account" }),
-        status: "success",
-        createdAt: new Date(Date.now() - 1000 * 60 * 30), // 30 min ago
-      },
-    ]);
-
-    console.log(`  ✓ Created 2 audit logs`);
-
-    // ============================================
-    // DONE
-    // ============================================
-    console.log("\n✅ Seed completed successfully!\n");
-    console.log("┌─────────────────────────────────────────────────────────┐");
-    console.log("│  📧 TEST ACCOUNTS                                       │");
-    console.log("├─────────────────────────────────────────────────────────┤");
-    console.log("│  Admin:        admin@example.com  /  admin123          │");
-    console.log("│  Moderator:    moderator@example.com  /  moderator123  │");
-    console.log("│  User:         user@example.com  /  user123            │");
-    console.log("│  Test:         test@example.com  /  test123            │");
-    console.log("└─────────────────────────────────────────────────────────┘\n");
+    console.log("\n✅ Seed completed!");
+    console.log("\nAfter registering users via API, run the assign-roles script.");
 
   } catch (error) {
     console.error("❌ Seed failed:", error);
@@ -315,5 +167,4 @@ async function seed() {
   }
 }
 
-// Run seed
 seed().catch(console.error);
