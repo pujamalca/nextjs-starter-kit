@@ -27,21 +27,19 @@ export const auth = betterAuth({
     requireEmailVerification: false,
     minPasswordLength: 8,
     maxPasswordLength: 128,
+    autoSignIn: true,
   },
 
-  // Social providers
-  socialProviders: {
-    google: {
-      clientId: process.env.GOOGLE_CLIENT_ID || "",
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
-      enabled: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-    },
-  },
+  // Trusted origins (important for cookies)
+  trustedOrigins: [
+    "http://localhost:3000",
+    process.env.BETTER_AUTH_URL || "http://localhost:3000",
+  ],
 
   // Session configuration
   session: {
     expiresIn: 60 * 60 * 24 * 7, // 7 days
-    updateAge: 60 * 60 * 24, // 1 day (update session every day)
+    updateAge: 60 * 60 * 24, // 1 day
     cookieCache: {
       enabled: true,
       maxAge: 60 * 5, // 5 minutes
@@ -50,14 +48,16 @@ export const auth = betterAuth({
 
   // Advanced settings
   advanced: {
-    generateId: false, // Use default ID generation
     useSecureCookies: process.env.NODE_ENV === "production",
     cookiePrefix: "starter_kit",
+    crossSubDomainCookies: {
+      enabled: false,
+    },
   },
 
   // Plugins
   plugins: [
-    nextCookies(), // Required for Next.js App Router
+    nextCookies(),
   ],
 
   // Base URL
