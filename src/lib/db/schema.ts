@@ -39,8 +39,8 @@ export const users = mysqlTable(
     emailVerified: boolean().default(false).notNull(),
     image: varchar({ length: 255 }),
     password: varchar({ length: 255 }), // Hashed password
-    createdAt: datetime().defaultNow().notNull(),
-    updatedAt: datetime().defaultNow().onUpdateNow().notNull(),
+    createdAt: datetime({ mode: "date" }).$defaultFn(() => new Date()).notNull(),
+    updatedAt: datetime({ mode: "date" }).$defaultFn(() => new Date()).$onUpdateFn(() => new Date()).notNull(),
   },
   (table) => ({
     emailIdx: uniqueIndex("email_idx").on(table.email),
@@ -60,7 +60,7 @@ export const sessions = mysqlTable(
     userId: varchar({ length: 255 })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    createdAt: datetime().defaultNow().notNull(),
+    createdAt: datetime({ mode: "date" }).$defaultFn(() => new Date()).notNull(),
   },
   (table) => ({
     userIdIdx: index("session_user_idx").on(table.userId),
@@ -86,8 +86,8 @@ export const accounts = mysqlTable(
     refreshTokenExpiresAt: datetime(),
     scope: text(),
     password: varchar({ length: 255 }),
-    createdAt: datetime().defaultNow().notNull(),
-    updatedAt: datetime().defaultNow().onUpdateNow().notNull(),
+    createdAt: datetime({ mode: "date" }).$defaultFn(() => new Date()).notNull(),
+    updatedAt: datetime({ mode: "date" }).$defaultFn(() => new Date()).$onUpdateFn(() => new Date()).notNull(),
   },
   (table) => ({
     providerIdx: index("account_provider_idx").on(table.providerId, table.userId),
@@ -104,7 +104,7 @@ export const verifications = mysqlTable(
     identifier: varchar({ length: 255 }).notNull(),
     value: varchar({ length: 255 }).notNull(),
     expiresAt: datetime().notNull(),
-    createdAt: datetime().defaultNow().notNull(),
+    createdAt: datetime({ mode: "date" }).$defaultFn(() => new Date()).notNull(),
   },
   (table) => ({
     identifierIdx: index("verification_identifier_idx").on(table.identifier),
@@ -120,8 +120,8 @@ export const roles = mysqlTable(
     id: varchar({ length: 255 }).primaryKey(),
     name: varchar({ length: 100 }).notNull(),
     description: text(),
-    createdAt: datetime().defaultNow().notNull(),
-    updatedAt: datetime().defaultNow().onUpdateNow().notNull(),
+    createdAt: datetime({ mode: "date" }).$defaultFn(() => new Date()).notNull(),
+    updatedAt: datetime({ mode: "date" }).$defaultFn(() => new Date()).$onUpdateFn(() => new Date()).notNull(),
   },
   (table) => ({
     nameIdx: uniqueIndex("role_name_idx").on(table.name),
@@ -139,7 +139,7 @@ export const permissions = mysqlTable(
     description: text(),
     resource: varchar({ length: 100 }).notNull(),
     action: mysqlEnum(["create", "read", "update", "delete", "manage"]).notNull(),
-    createdAt: datetime().defaultNow().notNull(),
+    createdAt: datetime({ mode: "date" }).$defaultFn(() => new Date()).notNull(),
   },
   (table) => ({
     nameIdx: uniqueIndex("permission_name_idx").on(table.name),
@@ -159,7 +159,7 @@ export const rolePermissions = mysqlTable(
     permissionId: varchar({ length: 255 })
       .notNull()
       .references(() => permissions.id, { onDelete: "cascade" }),
-    createdAt: datetime().defaultNow().notNull(),
+    createdAt: datetime({ mode: "date" }).$defaultFn(() => new Date()).notNull(),
   },
   (table) => ({
     pk: index("role_permission_pk").on(table.roleId, table.permissionId),
@@ -178,7 +178,7 @@ export const userRoles = mysqlTable(
     roleId: varchar({ length: 255 })
       .notNull()
       .references(() => roles.id, { onDelete: "cascade" }),
-    assignedAt: datetime().defaultNow().notNull(),
+    assignedAt: datetime({ mode: "date" }).$defaultFn(() => new Date()).notNull(),
     assignedBy: varchar({ length: 255 }).references(() => users.id),
   },
   (table) => ({
@@ -203,7 +203,7 @@ export const auditLogs = mysqlTable(
     userAgent: text(),
     details: text(), // JSON string for additional data
     status: mysqlEnum(["success", "failure"]).default("success").notNull(),
-    createdAt: datetime().defaultNow().notNull(),
+    createdAt: datetime({ mode: "date" }).$defaultFn(() => new Date()).notNull(),
   },
   (table) => ({
     userIdx: index("audit_user_idx").on(table.userId),
@@ -228,7 +228,7 @@ export const files = mysqlTable(
     uploadedBy: varchar({ length: 255 })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    createdAt: datetime().defaultNow().notNull(),
+    createdAt: datetime({ mode: "date" }).$defaultFn(() => new Date()).notNull(),
   },
   (table) => ({
     uploadedByIdx: index("file_uploader_idx").on(table.uploadedBy),
